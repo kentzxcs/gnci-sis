@@ -12,11 +12,6 @@ const supabaseClient = window.supabase
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
   : null;
 
-// Keep the existing Supabase calls working; disable live mode until the real anon key is configured.
-const supabase = SUPABASE_ANON_KEY !== 'YOUR_SUPABASE_ANON_PUBLIC_KEY'
-  ? supabaseClient
-  : undefined;
-
 // Fee Configuration Constants (Automated Tuition Calculator Engine)
 const FEE_RATES = {
   TUITION_PER_UNIT: 650.00,
@@ -1025,7 +1020,7 @@ function renderLoginView() {
 // ==========================================================================
 
 async function renderAdminOverview(container) {
-  if (typeof supabase === 'undefined') {
+  if (!supabaseClient) {
     container.innerHTML = renderAdminOverviewLocal();
     return;
   }
@@ -1033,10 +1028,10 @@ async function renderAdminOverview(container) {
   let studentsRes, usersRes, paymentsRes, announcementsRes;
   try {
     [studentsRes, usersRes, paymentsRes, announcementsRes] = await Promise.all([
-      supabase.from('students').select('student_id', { count: 'exact', head: true }),
-      supabase.from('users').select('user_id', { count: 'exact', head: true }),
-      supabase.from('payments').select('amount_paid'),
-      supabase.from('announcements').select('announcement_id', { count: 'exact', head: true })
+      supabaseClient.from('students').select('student_id', { count: 'exact', head: true }),
+      supabaseClient.from('users').select('user_id', { count: 'exact', head: true }),
+      supabaseClient.from('payments').select('amount_paid'),
+      supabaseClient.from('announcements').select('announcement_id', { count: 'exact', head: true })
     ]);
   } catch (error) {
     console.error('Admin overview query error:', error);
@@ -1067,18 +1062,18 @@ async function renderAdminOverview(container) {
 }
 
 async function renderAdminStudents(container) {
-  if (typeof supabase === 'undefined') {
+  if (!supabaseClient) {
     container.innerHTML = renderAdminStudentsLocal();
     return;
   }
 
   const [{ data: students, error: stuErr }, { data: sections, error: secErr }] =
     await Promise.all([
-      supabase
+      supabaseClient
         .from('students')
         .select('student_id, full_name, program, year_level, section_id, email, enrollment_status')
         .order('student_id', { ascending: true }),
-      supabase.from('sections').select('section_id, section_code')
+      supabaseClient.from('sections').select('section_id, section_code')
     ]);
 
   if (stuErr || secErr) {
@@ -1134,7 +1129,7 @@ async function handleAddStudent(event) {
     enrollment_status: 'Enrolled'
   };
 
-  if (typeof supabase === 'undefined') {
+  if (!supabaseClient) {
     if (db.students.some(student => student.student_id === newStudent.student_id)) {
       alert(`Student ${newStudent.student_id} already exists.`);
       return;
@@ -1150,7 +1145,7 @@ async function handleAddStudent(event) {
     return;
   }
 
-  const { error } = await supabase.from('students').insert([newStudent]);
+  const { error } = await supabaseClient.from('students').insert([newStudent]);
   if (error) {
     alert(`Error adding student: ${error.message}`);
     return;
@@ -1161,7 +1156,7 @@ async function handleAddStudent(event) {
 async function deleteStudentRecord(studentId) {
   if (!confirm(`Delete student ${studentId}?`)) return;
 
-  if (typeof supabase === 'undefined') {
+  if (!supabaseClient) {
     const enrollmentIds = new Set(
       db.enrollments
         .filter(enrollment => enrollment.student_id === studentId)
@@ -1175,7 +1170,7 @@ async function deleteStudentRecord(studentId) {
     return;
   }
 
-  const { error } = await supabase.from('students').delete().eq('student_id', studentId);
+  const { error } = await supabaseClient.from('students').delete().eq('student_id', studentId);
   if (error) {
     alert(`Error deleting student: ${error.message}`);
     return;
@@ -1184,7 +1179,7 @@ async function deleteStudentRecord(studentId) {
 }
 
 async function renderAdminUsers(container) {
-  if (typeof supabase === 'undefined') {
+  if (!supabaseClient) {
     const accounts = db.users;
     container.innerHTML = `
       <h2>System Accounts</h2>
@@ -1211,7 +1206,7 @@ async function renderAdminUsers(container) {
     return;
   }
 
-  const { data: accounts, error } = await supabase
+  const { data: accounts, error } = await supabaseClient
     .from('users')
     .select('user_id, username, role')
     .order('user_id', { ascending: true });
@@ -1260,7 +1255,7 @@ async function handleCreateStaffAccount(event) {
     role: selectedRole
   };
 
-  if (typeof supabase === 'undefined') {
+  if (!supabaseClient) {
     if (db.users.some(user => user.username.toLowerCase() === newAccount.username)) {
       alert(`The username ${newAccount.username} is already registered.`);
       return;
@@ -1272,7 +1267,7 @@ async function handleCreateStaffAccount(event) {
     return;
   }
 
-  const { data: existingAccounts, error: lookupError } = await supabase
+  const { data: existingAccounts, error: lookupError } = await supabaseClient
     .from('users')
     .select('user_id')
     .eq('username', newAccount.username)
@@ -1286,7 +1281,7 @@ async function handleCreateStaffAccount(event) {
     return;
   }
 
-  const { error } = await supabase.from('users').insert([newAccount]);
+  const { error } = await supabaseClient.from('users').insert([newAccount]);
   if (error) {
     alert(`Error creating account: ${error.message}`);
     return;
@@ -1297,14 +1292,14 @@ async function handleCreateStaffAccount(event) {
 async function deleteUserAccount(userId) {
   if (!confirm(`Delete account ${userId}?`)) return;
 
-  if (typeof supabase === 'undefined') {
+  if (!supabaseClient) {
     db.users = db.users.filter(user => user.user_id !== userId);
     saveDatabase();
     await renderAdminUsers(document.getElementById('admin-workspace'));
     return;
   }
 
-  const { error } = await supabase
+  const { error } = await supabaseClient
     .from('users')
     .delete()
     .eq('user_id', userId);
@@ -1320,7 +1315,7 @@ async function deleteUserAccount(userId) {
 async function toggleAccountStatus(userId, currentStatus) {
   const nextStatus = currentStatus === 'Active' ? 'Inactive' : 'Active';
 
-  if (typeof supabase === 'undefined') {
+  if (!supabaseClient) {
     const account = db.users.find(user => user.user_id === userId);
     if (account) account.status = nextStatus;
     saveDatabase();
@@ -1328,7 +1323,7 @@ async function toggleAccountStatus(userId, currentStatus) {
     return;
   }
 
-  const { error } = await supabase
+  const { error } = await supabaseClient
     .from('users')
     .update({ status: nextStatus })
     .eq('user_id', userId);
@@ -1341,12 +1336,12 @@ async function toggleAccountStatus(userId, currentStatus) {
 }
 
 async function renderAdminPayments(container) {
-  if (typeof supabase === 'undefined') {
+  if (!supabaseClient) {
     container.innerHTML = renderAdminTuitionLocal();
     return;
   }
 
-  const { data: payments, error } = await supabase
+  const { data: payments, error } = await supabaseClient
     .from('payments')
     .select('payment_id, student_id, or_number, amount_paid, payment_type, payment_date, recorded_by')
     .order('payment_date', { ascending: false });
@@ -1396,7 +1391,7 @@ async function handleAddPayment(event) {
     recorded_by: currentUser ? currentUser.full_name : 'Admin'
   };
 
-  if (typeof supabase === 'undefined') {
+  if (!supabaseClient) {
     if (!db.students.some(student => student.student_id === paymentRow.student_id)) {
       alert(`Student ${paymentRow.student_id} was not found.`);
       return;
@@ -1407,7 +1402,7 @@ async function handleAddPayment(event) {
     return;
   }
 
-  const { error } = await supabase.from('payments').insert([paymentRow]);
+  const { error } = await supabaseClient.from('payments').insert([paymentRow]);
   if (error) {
     alert(`Error saving payment: ${error.message}`);
     return;
@@ -1416,12 +1411,12 @@ async function handleAddPayment(event) {
 }
 
 async function renderAdminAnnouncements(container) {
-  if (typeof supabase === 'undefined') {
+  if (!supabaseClient) {
     container.innerHTML = renderAnnouncementsModule(true);
     return;
   }
 
-  const { data: posts, error } = await supabase
+  const { data: posts, error } = await supabaseClient
     .from('announcements')
     .select('announcement_id, title, content, target_role, posted_by, created_at')
     .order('created_at', { ascending: false });
@@ -1472,14 +1467,14 @@ async function handlePublishAnnouncement(event) {
     created_at: new Date().toISOString().split('T')[0]
   };
 
-  if (typeof supabase === 'undefined') {
+  if (!supabaseClient) {
     db.announcements.unshift(newPost);
     saveDatabase();
     await renderAdminAnnouncements(document.getElementById('admin-workspace'));
     return;
   }
 
-  const { error } = await supabase.from('announcements').insert([newPost]);
+  const { error } = await supabaseClient.from('announcements').insert([newPost]);
   if (error) {
     alert(`Error publishing announcement: ${error.message}`);
     return;
@@ -3154,7 +3149,7 @@ function saveAnnouncementForm(e) {
 async function deleteAnnouncement(announcementId) {
   if (!confirm('Delete this announcement?')) return;
 
-  if (typeof supabase === 'undefined') {
+  if (!supabaseClient) {
     db.announcements = db.announcements.filter(a => a.announcement_id !== announcementId);
     saveDatabase();
     showToast('Announcement deleted.', 'success');
@@ -3167,7 +3162,7 @@ async function deleteAnnouncement(announcementId) {
     return;
   }
 
-  const { error } = await supabase
+  const { error } = await supabaseClient
     .from('announcements')
     .delete()
     .eq('announcement_id', announcementId);
