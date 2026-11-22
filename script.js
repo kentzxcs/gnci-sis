@@ -515,67 +515,45 @@ async function handleLogin(event) {
   renderPortalByRole(currentUser);
 }
 
-function handleSignup(e) {
-  e.preventDefault();
-  const fullName = document.getElementById('signup-fullname').value.trim();
-  const studentId = document.getElementById('signup-studentid').value.trim();
-  const program = document.getElementById('signup-program').value;
-  const email = document.getElementById('signup-email').value.trim().toLowerCase();
-  const password = document.getElementById('signup-password').value.trim();
+async function handleSignUp(event) {
+  event.preventDefault();
 
-  if (!email.endsWith('@gnc.edu.ph')) {
-    showToast('Registration requires an official @gnc.edu.ph school Gmail (e.g., delacruz.juan@gnc.edu.ph).', 'error');
+  if (!supabaseClient) {
+    alert('Supabase is not initialized.');
     return;
   }
 
-  if (db.users.some(u => u.username.toLowerCase() === email)) {
-    showToast('This @gnc.edu.ph Gmail is already registered.', 'error');
+  const username = document.getElementById('signup-email').value.trim().toLowerCase();
+  const password = document.getElementById('signup-password').value;
+  const role = 'Student';
+
+  if (!username || !password) {
+    alert('Please enter both email/username and password.');
     return;
   }
 
-  const newUserId = 'USR-' + (db.users.length + 10);
-  const defaultSection = db.sections[0] ? db.sections[0].section_id : 'SEC-BSIT3A';
+  const prefix = 'STU';
+  const newAccount = {
+    user_id: `${prefix}-${Date.now().toString().slice(-6)}`,
+    username,
+    password,
+    role
+  };
 
-  db.users.push({
-    user_id: newUserId,
-    username: email,
-    password: password,
-    role: 'Student',
-    full_name: fullName,
-    department_or_program: program,
-    status: 'Active'
-  });
+  const { data, error } = await supabaseClient
+    .from('users')
+    .insert([newAccount])
+    .select('user_id, username, role');
 
-  db.students.push({
-    student_id: studentId,
-    user_id: newUserId,
-    full_name: fullName,
-    program: program,
-    year_level: '1st Year',
-    section_id: defaultSection,
-    email: email,
-    contact_no: 'N/A',
-    address: 'Guagua, Pampanga',
-    enrollment_status: 'Enrolled'
-  });
+  if (error) {
+    alert(`Could not save account: ${error.message}`);
+    return;
+  }
 
-  // Auto-enroll in default section schedules
-  const secScheds = db.schedules.filter(sc => sc.section_id === defaultSection);
-  secScheds.forEach((sc, idx) => {
-    db.enrollments.push({
-      enrollment_id: 'ENR-' + (Date.now() + idx).toString().slice(-5),
-      student_id: studentId,
-      schedule_id: sc.schedule_id,
-      school_year: '2026-2027',
-      semester: '1st Semester',
-      status: 'Officially Enrolled'
-    });
-  });
-
-  saveDatabase();
-  showToast('GNC account created! Please sign in with your @gnc.edu.ph Gmail.', 'success');
-  authMode = 'login';
-  render();
+  currentUser = data[0];
+  localStorage.setItem('gnci_session_user', JSON.stringify(currentUser));
+  alert(`Account saved! Welcome, ${currentUser.username}`);
+  renderPortalByRole(currentUser);
 }
 
 function quickLogin(userId) {
@@ -976,7 +954,7 @@ function renderLoginView() {
             <h2>Create Student Portal Account</h2>
             <p class="text-muted mb-4" style="font-size:12px;">Register using your official <strong>@gnc.edu.ph</strong> Gmail address.</p>
 
-            <form onsubmit="handleSignup(event)">
+            <form onsubmit="handleSignUp(event)">
               <div class="form-group">
                 <label>Full Name</label>
                 <input id="signup-fullname" type="text" placeholder="Juan Dela Cruz" required />
