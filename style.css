@@ -447,6 +447,177 @@ input:focus, select:focus, textarea:focus {
   width: 100%;
 }
 
+/* Distinct administrator portal */
+.portal-layout.admin-portal {
+  display: flex;
+  min-height: 100vh;
+  background: #F3F4F6;
+}
+
+.admin-sidebar {
+  width: 250px;
+  padding: 18px 14px;
+  background: #022C22;
+  border-right: 3px solid #047857;
+  box-sizing: border-box;
+}
+
+.admin-sidebar .sidebar-logo {
+  width: 48px;
+  height: 48px;
+  display: block;
+  margin-bottom: 10px;
+}
+
+.admin-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 3px;
+  background: #047857;
+  color: #FFFFFF;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.admin-name {
+  margin: 12px 0 2px;
+  color: #FFFFFF;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.admin-dept {
+  margin: 0 0 14px;
+  color: #A7F3D0;
+  font-size: 11px;
+}
+
+.admin-sidebar .nav-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.admin-sidebar .nav-menu button {
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-left: 3px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: #D1FAE5;
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.admin-sidebar .nav-menu button:hover,
+.admin-sidebar .nav-menu button.active {
+  background: #064E3B;
+  border-left-color: #34D399;
+  color: #FFFFFF;
+}
+
+.admin-portal .main-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-portal .topbar {
+  height: 52px;
+}
+
+.admin-portal .topbar h1 {
+  margin: 0;
+  color: var(--brand-primary);
+  font-size: 15px;
+}
+
+#admin-workspace {
+  padding: 20px;
+  max-width: 1350px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(160px, 1fr));
+  gap: 14px;
+}
+
+.stat-card {
+  padding: 18px;
+  border: 1px solid var(--border-strong);
+  border-top: 3px solid var(--brand-primary);
+  background: #FFFFFF;
+  border-radius: 4px;
+}
+
+.stat-card h3 {
+  margin: 0 0 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.stat-value {
+  margin: 0;
+  color: var(--brand-primary);
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.admin-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 14px;
+  border: 1px solid var(--border-strong);
+  background: #FFFFFF;
+}
+
+.admin-form input,
+.admin-form select,
+.admin-form textarea,
+.admin-form button {
+  min-height: 38px;
+  box-sizing: border-box;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #FFFFFF;
+}
+
+.data-table th,
+.data-table td {
+  padding: 9px 10px;
+  border: 1px solid var(--border-strong);
+  text-align: left;
+  font-size: 12px;
+}
+
+.error-text {
+  color: var(--status-danger);
+  font-weight: 700;
+}
+
+@media (max-width: 900px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, minmax(150px, 1fr));
+  }
+
+  .admin-form {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Cards & Metrics */
 .kpi-grid {
   display: grid;

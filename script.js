@@ -474,29 +474,52 @@ function switchAuthMode(mode) {
   render();
 }
 
-function handleLogin(e) {
-  e.preventDefault();
-  const email = document.getElementById('login-username').value.trim().toLowerCase();
-  const password = document.getElementById('login-password').value.trim();
+async function handleLogin(event) {
+  event.preventDefault();
 
-  if (!email.endsWith('@gnc.edu.ph')) {
-    showToast('Please use a valid @gnc.edu.ph institutional Gmail address.', 'error');
+  const loginInput = document.getElementById('login-username').value.trim().toLowerCase();
+  const passwordInput = document.getElementById('login-password').value;
+
+  // Supabase-backed authentication when Supabase is initialized.
+  if (typeof supabase !== 'undefined') {
+    const { data: users, error } = await supabase
+      .from('users')
+      .select('user_id, username, role, full_name, department_or_program, status')
+      .eq('username', loginInput)
+      .eq('password', passwordInput)
+      .eq('status', 'Active')
+      .limit(1);
+
+    if (error) {
+      console.error('Login query error:', error.message);
+      alert('Unable to verify credentials right now. Please try again.');
+      return;
+    }
+
+    if (!users || users.length === 0) {
+      alert('Invalid credentials or inactive account.');
+      return;
+    }
+
+    currentUser = users[0];
+    localStorage.setItem('gnci_session_user', JSON.stringify(currentUser));
+    renderPortalByRole(currentUser);
     return;
   }
 
+  // Preserve local demo authentication until Supabase is configured.
   const user = db.users.find(
-    u => u.username.toLowerCase() === email && u.password === password
+    u => u.username.toLowerCase() === loginInput &&
+      u.password === passwordInput &&
+      u.status === 'Active'
   );
 
   if (!user) {
-    showToast('Invalid GNC Gmail or password.', 'error');
+    alert('Invalid credentials or inactive account.');
     return;
   }
 
-  currentUser = user;
-  activeTab = 'overview';
-  showToast(`Authenticated as ${user.full_name} (${user.role})`, 'success');
-  render();
+  renderPortalByRole(user);
 }
 
 function handleSignup(e) {
@@ -565,16 +588,14 @@ function handleSignup(e) {
 function quickLogin(userId) {
   const user = db.users.find(u => u.user_id === userId);
   if (user) {
-    currentUser = user;
-    activeTab = 'overview';
-    showToast(`Signed in via RBAC Demo: ${user.full_name} [${user.role}]`, 'success');
-    render();
+    renderPortalByRole(user);
   }
 }
 
 function logout() {
   currentUser = null;
   activeTab = 'overview';
+  localStorage.removeItem('gnci_session_user');
   closeModal();
   render();
 }
@@ -616,7 +637,185 @@ function getMenuForRole(role) {
 // MAIN RENDERER
 // ==========================================================================
 
+function renderPortalByRole(user) {
+  if (!user || !user.role) {
+    currentUser = null;
+    activeTab = 'overview';
+    render();
+    return;
+  }
+
+  currentUser = user;
+  activeTab = 'overview';
+  const roleMap = { admin: 'Admin', faculty: 'Faculty', student: 'Student' };
+  const normalizedRole = roleMap[String(currentUser.role).trim().toLowerCase()];
+  if (!normalizedRole) {
+    currentUser = null;
+    localStorage.removeItem('gnci_session_user');
+    alert('This account has an unsupported portal role.');
+    render();
+    return;
+  }
+
+  currentUser.role = normalizedRole;
+  localStorage.setItem('gnci_session_user', JSON.stringify(currentUser));
+  showToast(`Authenticated as ${currentUser.full_name} (${currentUser.role})`, 'success');
+  render();
+}
+
+function renderFacultyPortal(facultyUser) {
+  currentUser = facultyUser;
+  if (!getMenuForRole('Faculty').some(item => item.id === activeTab)) {
+    activeTab = 'overview';
+  }
+  renderStandardPortal();
+}
+
+function renderStudentPortal(studentUser) {
+  currentUser = studentUser;
+  if (!getMenuForRole('Student').some(item => item.id === activeTab)) {
+    activeTab = 'overview';
+  }
+  renderStandardPortal();
+}
+
+function renderAdminPortal(adminUser) {
+  currentUser = adminUser;
+  const appRoot = document.getElementById('app') || document.body;
+  const sections = [
+    { id: 'overview', label: 'Dashboard Overview' },
+    { id: 'students', label: 'Students & Sections' },
+    { id: 'users', label: 'Admin & Faculty Accounts' },
+    { id: 'payments', label: 'Tuition & OR Payments' },
+    { id: 'announcements', label: 'Announcements' }
+  ];
+
+  if (!sections.some(section => section.id === activeTab)) {
+    activeTab = 'overview';
+  }
+
+  appRoot.innerHTML = `
+    <div class="portal-layout admin-portal">
+      <aside class="sidebar admin-sidebar">
+        <img src="images.jpg" alt="GNC Logo" class="sidebar-logo" />
+        <div class="admin-badge">ADMIN PORTAL</div>
+        <p class="admin-name">${escapeHtml(adminUser.full_name)}</p>
+        <p class="admin-dept text-muted">${escapeHtml(adminUser.department_or_program || 'Administration')}</p>
+
+        <nav class="nav-menu">
+          ${sections.map(section => `
+            <button type="button" class="${activeTab === section.id ? 'active' : ''}" onclick="showAdminSection('${section.id}')">
+              ${section.label}
+            </button>
+          `).join('')}
+          <button type="button" onclick="handleLogout()">Sign Out</button>
+        </nav>
+      </aside>
+
+      <main class="main-content">
+        <header class="topbar">
+          <h1>Administrator Workspace</h1>
+          <span>Signed in as <strong>${escapeHtml(adminUser.username)}</strong></span>
+        </header>
+        <section id="admin-workspace">
+          <p>Loading ${escapeHtml(activeTab)}...</p>
+        </section>
+      </main>
+    </div>
+  `;
+  showAdminSection(activeTab);
+}
+
+function renderAdminAccounts() {
+  const accounts = db.users.filter(user =>
+    user.role === 'Admin' || user.role === 'Faculty'
+  );
+
+  return `
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Admin & Faculty Accounts</div>
+          <div class="text-muted" style="font-size:12px;">Manage institutional account records.</div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>User ID</th><th>Name</th><th>Username</th><th>Role</th><th>Status</th></tr></thead>
+          <tbody>
+            ${accounts.map(user => `
+              <tr>
+                <td>${escapeHtml(user.user_id)}</td>
+                <td>${escapeHtml(user.full_name)}</td>
+                <td>${escapeHtml(user.username)}</td>
+                <td><span class="badge badge-info">${escapeHtml(user.role)}</span></td>
+                <td><span class="badge badge-success">${escapeHtml(user.status)}</span></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function renderAdminWorkspace(sectionId) {
+  switch (sectionId) {
+    case 'students':
+      return renderAdminStudentsLocal();
+    case 'users':
+      return renderAdminAccounts();
+    case 'payments':
+      return renderAdminTuitionLocal();
+    case 'announcements':
+      return renderAnnouncementsModule(true);
+    case 'overview':
+    default:
+      return renderAdminOverviewLocal();
+  }
+}
+
+async function showAdminSection(section) {
+  activeTab = section;
+  const workspace = document.getElementById('admin-workspace');
+  if (!workspace) return;
+
+  workspace.innerHTML = `<p>Loading ${escapeHtml(section)}...</p>`;
+
+  if (section === 'overview') {
+    await renderAdminOverview(workspace);
+  } else if (section === 'students') {
+    await renderAdminStudents(workspace);
+  } else if (section === 'users') {
+    await renderAdminUsers(workspace);
+  } else if (section === 'payments') {
+    await renderAdminPayments(workspace);
+  } else if (section === 'announcements') {
+    await renderAdminAnnouncements(workspace);
+  }
+}
+
+function handleLogout() {
+  logout();
+}
+
 function render() {
+  if (!currentUser) {
+    const app = document.getElementById('app');
+    app.innerHTML = renderLoginView();
+    return;
+  }
+
+  if (currentUser.role === 'Admin') {
+    renderAdminPortal(currentUser);
+  } else if (currentUser.role === 'Faculty') {
+    renderFacultyPortal(currentUser);
+  } else {
+    renderStudentPortal(currentUser);
+  }
+}
+
+function renderStandardPortal() {
   const app = document.getElementById('app');
   if (!currentUser) {
     app.innerHTML = renderLoginView();
@@ -687,10 +886,10 @@ function renderActiveModule() {
 
   if (role === 'Admin') {
     switch (activeTab) {
-      case 'overview': return renderAdminOverview();
-      case 'students': return renderAdminStudents();
+      case 'overview': return renderAdminOverviewLocal();
+      case 'students': return renderAdminStudentsLocal();
       case 'academics': return renderAdminAcademics();
-      case 'tuition': return renderAdminTuition();
+      case 'tuition': return renderAdminTuitionLocal();
       case 'announcements': return renderAnnouncementsModule(true);
       case 'database': return renderDatabaseInspector();
     }
@@ -833,7 +1032,456 @@ function renderLoginView() {
 // ADMINISTRATOR DASHBOARD & CRUD MODULES
 // ==========================================================================
 
-function renderAdminOverview() {
+async function renderAdminOverview(container) {
+  if (typeof supabase === 'undefined') {
+    container.innerHTML = renderAdminOverviewLocal();
+    return;
+  }
+
+  let studentsRes, usersRes, paymentsRes, announcementsRes;
+  try {
+    [studentsRes, usersRes, paymentsRes, announcementsRes] = await Promise.all([
+      supabase.from('students').select('student_id', { count: 'exact', head: true }),
+      supabase.from('users').select('user_id', { count: 'exact', head: true }),
+      supabase.from('payments').select('amount_paid'),
+      supabase.from('announcements').select('announcement_id', { count: 'exact', head: true })
+    ]);
+  } catch (error) {
+    console.error('Admin overview query error:', error);
+    container.innerHTML = '<p class="error-text">Failed to load dashboard data.</p>';
+    return;
+  }
+
+  const queryError = [studentsRes, usersRes, paymentsRes, announcementsRes].find(result => result.error);
+  if (queryError) {
+    console.error('Admin overview query error:', queryError.error.message);
+    container.innerHTML = '<p class="error-text">Failed to load dashboard data.</p>';
+    return;
+  }
+
+  const totalCollected = (paymentsRes.data || []).reduce(
+    (sum, row) => sum + Number(row.amount_paid || 0),
+    0
+  );
+
+  container.innerHTML = `
+    <div class="stats-grid">
+      <div class="stat-card"><h3>Total Students</h3><p class="stat-value">${studentsRes.count ?? 0}</p></div>
+      <div class="stat-card"><h3>System Accounts</h3><p class="stat-value">${usersRes.count ?? 0}</p></div>
+      <div class="stat-card"><h3>Total OR Collections</h3><p class="stat-value">${formatPHP(totalCollected)}</p></div>
+      <div class="stat-card"><h3>Active Announcements</h3><p class="stat-value">${announcementsRes.count ?? 0}</p></div>
+    </div>
+  `;
+}
+
+async function renderAdminStudents(container) {
+  if (typeof supabase === 'undefined') {
+    container.innerHTML = renderAdminStudentsLocal();
+    return;
+  }
+
+  const [{ data: students, error: stuErr }, { data: sections, error: secErr }] =
+    await Promise.all([
+      supabase
+        .from('students')
+        .select('student_id, full_name, program, year_level, section_id, email, enrollment_status')
+        .order('student_id', { ascending: true }),
+      supabase.from('sections').select('section_id, section_code')
+    ]);
+
+  if (stuErr || secErr) {
+    container.innerHTML = '<p class="error-text">Failed to load students or sections.</p>';
+    return;
+  }
+
+  const sectionMap = Object.fromEntries((sections || []).map(s => [s.section_id, s.section_code]));
+  const sectionOptions = (sections || [])
+    .map(s => `<option value="${escapeHtml(s.section_id)}">${escapeHtml(s.section_code)}</option>`)
+    .join('');
+
+  const rowsHtml = (students || []).map(st => `
+    <tr>
+      <td>${escapeHtml(st.student_id)}</td>
+      <td>${escapeHtml(st.full_name)}</td>
+      <td>${escapeHtml(st.program)}</td>
+      <td>${escapeHtml(st.year_level)}</td>
+      <td>${escapeHtml(sectionMap[st.section_id] || st.section_id || 'Unassigned')}</td>
+      <td>${escapeHtml(st.email)}</td>
+      <td>${escapeHtml(st.enrollment_status)}</td>
+      <td><button type="button" class="btn btn-sm btn-danger" onclick="deleteStudentRecord('${escapeHtml(st.student_id)}')">Delete</button></td>
+    </tr>
+  `).join('');
+
+  container.innerHTML = `
+    <h2>Students & Sections</h2>
+    <form id="add-student-form" class="admin-form" onsubmit="handleAddStudent(event)">
+      <input type="text" id="stu-id" placeholder="8-digit Student ID (e.g. 20261043)" required />
+      <input type="text" id="stu-name" placeholder="Full Name" required />
+      <input type="text" id="stu-program" placeholder="Program (e.g. BS Information Technology)" required />
+      <input type="text" id="stu-year" placeholder="Year Level (e.g. 3rd Year)" required />
+      <select id="stu-section"><option value="">Select Section</option>${sectionOptions}</select>
+      <input type="email" id="stu-email" placeholder="student@gnc.edu.ph" required />
+      <button type="submit" class="btn btn-primary">Add Student</button>
+    </form>
+    <table class="data-table">
+      <thead><tr><th>Student ID</th><th>Full Name</th><th>Program</th><th>Year</th><th>Section</th><th>Email</th><th>Status</th><th>Action</th></tr></thead>
+      <tbody>${rowsHtml || '<tr><td colspan="8">No student records found.</td></tr>'}</tbody>
+    </table>
+  `;
+}
+
+async function handleAddStudent(event) {
+  event.preventDefault();
+  const newStudent = {
+    student_id: document.getElementById('stu-id').value.trim(),
+    full_name: document.getElementById('stu-name').value.trim(),
+    program: document.getElementById('stu-program').value.trim(),
+    year_level: document.getElementById('stu-year').value.trim(),
+    section_id: document.getElementById('stu-section').value || null,
+    email: document.getElementById('stu-email').value.trim().toLowerCase(),
+    enrollment_status: 'Enrolled'
+  };
+
+  if (typeof supabase === 'undefined') {
+    if (db.students.some(student => student.student_id === newStudent.student_id)) {
+      alert(`Student ${newStudent.student_id} already exists.`);
+      return;
+    }
+    db.students.push({
+      ...newStudent,
+      user_id: null,
+      contact_no: 'N/A',
+      address: 'Guagua, Pampanga'
+    });
+    saveDatabase();
+    await renderAdminStudents(document.getElementById('admin-workspace'));
+    return;
+  }
+
+  const { error } = await supabase.from('students').insert([newStudent]);
+  if (error) {
+    alert(`Error adding student: ${error.message}`);
+    return;
+  }
+  await renderAdminStudents(document.getElementById('admin-workspace'));
+}
+
+async function deleteStudentRecord(studentId) {
+  if (!confirm(`Delete student ${studentId}?`)) return;
+
+  if (typeof supabase === 'undefined') {
+    const enrollmentIds = new Set(
+      db.enrollments
+        .filter(enrollment => enrollment.student_id === studentId)
+        .map(enrollment => enrollment.enrollment_id)
+    );
+    db.students = db.students.filter(student => student.student_id !== studentId);
+    db.enrollments = db.enrollments.filter(enrollment => enrollment.student_id !== studentId);
+    db.grades = db.grades.filter(grade => !enrollmentIds.has(grade.enrollment_id));
+    saveDatabase();
+    await renderAdminStudents(document.getElementById('admin-workspace'));
+    return;
+  }
+
+  const { error } = await supabase.from('students').delete().eq('student_id', studentId);
+  if (error) {
+    alert(`Error deleting student: ${error.message}`);
+    return;
+  }
+  await renderAdminStudents(document.getElementById('admin-workspace'));
+}
+
+async function renderAdminUsers(container) {
+  if (typeof supabase === 'undefined') {
+    const accounts = db.users.filter(user =>
+      user.role === 'Admin' || user.role === 'Faculty'
+    );
+    container.innerHTML = `
+      <h2>Admin & Faculty Accounts</h2>
+      <form id="add-account-form" class="admin-form" onsubmit="handleCreateStaffAccount(event)">
+        <input type="text" id="acc-username" placeholder="Username or @gnc.edu.ph email" required />
+        <input type="password" id="acc-password" placeholder="Temporary Password" required />
+        <select id="acc-role" required><option value="Admin">Admin</option><option value="Faculty">Faculty</option></select>
+        <input type="text" id="acc-fullname" placeholder="Full Name" required />
+        <input type="text" id="acc-dept" placeholder="Department or Program" required />
+        <button type="submit" class="btn btn-primary">Create Account</button>
+      </form>
+      <table class="data-table">
+        <thead><tr><th>User ID</th><th>Username / Email</th><th>Role</th><th>Full Name</th><th>Department / Program</th><th>Status</th><th>Action</th></tr></thead>
+        <tbody>${accounts.map(acc => `
+          <tr>
+            <td>${escapeHtml(acc.user_id)}</td><td>${escapeHtml(acc.username)}</td><td>${escapeHtml(acc.role)}</td>
+            <td>${escapeHtml(acc.full_name)}</td><td>${escapeHtml(acc.department_or_program || '—')}</td><td>${escapeHtml(acc.status)}</td>
+            <td><button type="button" class="btn btn-sm" onclick="toggleAccountStatus('${escapeHtml(acc.user_id)}', '${escapeHtml(acc.status)}')">${acc.status === 'Active' ? 'Deactivate' : 'Activate'}</button></td>
+          </tr>
+        `).join('') || '<tr><td colspan="7">No admin or faculty accounts found.</td></tr>'}</tbody>
+      </table>
+    `;
+    return;
+  }
+
+  const { data: accounts, error } = await supabase
+    .from('users')
+    .select('user_id, username, role, full_name, department_or_program, status')
+    .in('role', ['Admin', 'Faculty'])
+    .order('user_id', { ascending: true });
+
+  if (error) {
+    container.innerHTML = '<p class="error-text">Failed to load admin and faculty accounts.</p>';
+    return;
+  }
+
+  container.innerHTML = `
+    <h2>Admin & Faculty Accounts</h2>
+    <form id="add-account-form" class="admin-form" onsubmit="handleCreateStaffAccount(event)">
+      <input type="text" id="acc-username" placeholder="Username or @gnc.edu.ph email" required />
+      <input type="password" id="acc-password" placeholder="Temporary Password" required />
+      <select id="acc-role" required>
+        <option value="Admin">Admin</option>
+        <option value="Faculty">Faculty</option>
+      </select>
+      <input type="text" id="acc-fullname" placeholder="Full Name" required />
+      <input type="text" id="acc-dept" placeholder="Department or Program" required />
+      <button type="submit" class="btn btn-primary">Create Account</button>
+    </form>
+    <table class="data-table">
+      <thead><tr><th>User ID</th><th>Username / Email</th><th>Role</th><th>Full Name</th><th>Department / Program</th><th>Status</th><th>Action</th></tr></thead>
+      <tbody>
+        ${(accounts || []).map(acc => `
+          <tr>
+            <td>${escapeHtml(acc.user_id)}</td>
+            <td>${escapeHtml(acc.username)}</td>
+            <td>${escapeHtml(acc.role)}</td>
+            <td>${escapeHtml(acc.full_name)}</td>
+            <td>${escapeHtml(acc.department_or_program || '—')}</td>
+            <td>${escapeHtml(acc.status)}</td>
+            <td><button type="button" class="btn btn-sm" onclick="toggleAccountStatus('${escapeHtml(acc.user_id)}', '${escapeHtml(acc.status)}')">${acc.status === 'Active' ? 'Deactivate' : 'Activate'}</button></td>
+          </tr>
+        `).join('') || '<tr><td colspan="7">No admin or faculty accounts found.</td></tr>'}
+      </tbody>
+    </table>
+  `;
+}
+
+async function handleCreateStaffAccount(event) {
+  event.preventDefault();
+  const selectedRole = document.getElementById('acc-role').value;
+  const prefix = selectedRole === 'Admin' ? 'ADM' : 'FAC';
+  const newAccount = {
+    user_id: `${prefix}-${Date.now().toString().slice(-6)}`,
+    username: document.getElementById('acc-username').value.trim().toLowerCase(),
+    password: document.getElementById('acc-password').value,
+    role: selectedRole,
+    full_name: document.getElementById('acc-fullname').value.trim(),
+    department_or_program: document.getElementById('acc-dept').value.trim(),
+    status: 'Active'
+  };
+
+  if (typeof supabase === 'undefined') {
+    if (db.users.some(user => user.username.toLowerCase() === newAccount.username)) {
+      alert(`The username ${newAccount.username} is already registered.`);
+      return;
+    }
+    db.users.push(newAccount);
+    saveDatabase();
+    showToast('Staff account created.', 'success');
+    await renderAdminUsers(document.getElementById('admin-workspace'));
+    return;
+  }
+
+  const { data: existingAccounts, error: lookupError } = await supabase
+    .from('users')
+    .select('user_id')
+    .eq('username', newAccount.username)
+    .limit(1);
+  if (lookupError) {
+    alert(`Error checking account: ${lookupError.message}`);
+    return;
+  }
+  if (existingAccounts && existingAccounts.length > 0) {
+    alert(`The username ${newAccount.username} is already registered.`);
+    return;
+  }
+
+  const { error } = await supabase.from('users').insert([newAccount]);
+  if (error) {
+    alert(`Error creating account: ${error.message}`);
+    return;
+  }
+  await renderAdminUsers(document.getElementById('admin-workspace'));
+}
+
+async function toggleAccountStatus(userId, currentStatus) {
+  const nextStatus = currentStatus === 'Active' ? 'Inactive' : 'Active';
+
+  if (typeof supabase === 'undefined') {
+    const account = db.users.find(user => user.user_id === userId);
+    if (account) account.status = nextStatus;
+    saveDatabase();
+    await renderAdminUsers(document.getElementById('admin-workspace'));
+    return;
+  }
+
+  const { error } = await supabase
+    .from('users')
+    .update({ status: nextStatus })
+    .eq('user_id', userId);
+
+  if (error) {
+    alert(`Error updating status: ${error.message}`);
+    return;
+  }
+  await renderAdminUsers(document.getElementById('admin-workspace'));
+}
+
+async function renderAdminPayments(container) {
+  if (typeof supabase === 'undefined') {
+    container.innerHTML = renderAdminTuitionLocal();
+    return;
+  }
+
+  const { data: payments, error } = await supabase
+    .from('payments')
+    .select('payment_id, student_id, or_number, amount_paid, payment_type, payment_date, recorded_by')
+    .order('payment_date', { ascending: false });
+
+  if (error) {
+    container.innerHTML = '<p class="error-text">Failed to load payments.</p>';
+    return;
+  }
+
+  const rowsHtml = (payments || []).map(p => `
+    <tr>
+      <td>${escapeHtml(p.or_number)}</td>
+      <td>${escapeHtml(p.student_id)}</td>
+      <td>${escapeHtml(p.payment_type)}</td>
+      <td>${formatPHP(p.amount_paid)}</td>
+      <td>${escapeHtml(p.payment_date)}</td>
+      <td>${escapeHtml(p.recorded_by)}</td>
+    </tr>
+  `).join('');
+
+  container.innerHTML = `
+    <h2>Tuition & Official Receipt (OR) Payments</h2>
+    <form id="add-payment-form" class="admin-form" onsubmit="handleAddPayment(event)">
+      <input type="text" id="pay-or" placeholder="OR Number (e.g. OR-2026-0001)" required />
+      <input type="text" id="pay-student-id" placeholder="Student ID (e.g. 20261042)" required />
+      <input type="text" id="pay-type" placeholder="Payment Type (e.g. Tuition Fee)" required />
+      <input type="number" step="0.01" min="0" id="pay-amount" placeholder="Amount Paid" required />
+      <input type="date" id="pay-date" value="${new Date().toISOString().split('T')[0]}" required />
+      <button type="submit" class="btn btn-primary">Record Payment</button>
+    </form>
+    <table class="data-table">
+      <thead><tr><th>OR Number</th><th>Student ID</th><th>Payment Type</th><th>Amount Paid</th><th>Date</th><th>Recorded By</th></tr></thead>
+      <tbody>${rowsHtml || '<tr><td colspan="6">No payments recorded yet.</td></tr>'}</tbody>
+    </table>
+  `;
+}
+
+async function handleAddPayment(event) {
+  event.preventDefault();
+  const paymentRow = {
+    payment_id: `PAY-${Date.now()}`,
+    or_number: document.getElementById('pay-or').value.trim(),
+    student_id: document.getElementById('pay-student-id').value.trim(),
+    payment_type: document.getElementById('pay-type').value.trim(),
+    amount_paid: parseFloat(document.getElementById('pay-amount').value),
+    payment_date: document.getElementById('pay-date').value,
+    recorded_by: currentUser ? currentUser.full_name : 'Admin'
+  };
+
+  if (typeof supabase === 'undefined') {
+    if (!db.students.some(student => student.student_id === paymentRow.student_id)) {
+      alert(`Student ${paymentRow.student_id} was not found.`);
+      return;
+    }
+    db.payments.push(paymentRow);
+    saveDatabase();
+    await renderAdminPayments(document.getElementById('admin-workspace'));
+    return;
+  }
+
+  const { error } = await supabase.from('payments').insert([paymentRow]);
+  if (error) {
+    alert(`Error saving payment: ${error.message}`);
+    return;
+  }
+  await renderAdminPayments(document.getElementById('admin-workspace'));
+}
+
+async function renderAdminAnnouncements(container) {
+  if (typeof supabase === 'undefined') {
+    container.innerHTML = renderAnnouncementsModule(true);
+    return;
+  }
+
+  const { data: posts, error } = await supabase
+    .from('announcements')
+    .select('announcement_id, title, content, target_role, posted_by, created_at')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    container.innerHTML = '<p class="error-text">Failed to load announcements.</p>';
+    return;
+  }
+
+  container.innerHTML = `
+    <h2>Announcements</h2>
+    <form id="add-announcement-form" class="admin-form" onsubmit="handlePublishAnnouncement(event)">
+      <input type="text" id="ann-title" placeholder="Announcement Title" required />
+      <select id="ann-role" required>
+        <option value="All">All Users</option>
+        <option value="Faculty">Faculty Only</option>
+        <option value="Student">Students Only</option>
+      </select>
+      <textarea id="ann-content" placeholder="Write announcement details..." rows="3" required></textarea>
+      <button type="submit" class="btn btn-primary">Post Announcement</button>
+    </form>
+    <table class="data-table">
+      <thead><tr><th>Title</th><th>Content</th><th>Target Role</th><th>Posted By</th><th>Date</th><th>Action</th></tr></thead>
+      <tbody>
+        ${(posts || []).map(post => `
+          <tr>
+            <td>${escapeHtml(post.title)}</td>
+            <td>${escapeHtml(post.content)}</td>
+            <td>${escapeHtml(post.target_role)}</td>
+            <td>${escapeHtml(post.posted_by)}</td>
+            <td>${escapeHtml(post.created_at)}</td>
+            <td><button type="button" class="btn btn-sm btn-danger" onclick="deleteAnnouncement('${escapeHtml(post.announcement_id)}')">Delete</button></td>
+          </tr>
+        `).join('') || '<tr><td colspan="6">No announcements posted yet.</td></tr>'}
+      </tbody>
+    </table>
+  `;
+}
+
+async function handlePublishAnnouncement(event) {
+  event.preventDefault();
+  const newPost = {
+    announcement_id: `ANN-${Date.now()}`,
+    title: document.getElementById('ann-title').value.trim(),
+    content: document.getElementById('ann-content').value.trim(),
+    target_role: document.getElementById('ann-role').value,
+    posted_by: currentUser ? currentUser.full_name : 'Admin',
+    created_at: new Date().toISOString().split('T')[0]
+  };
+
+  if (typeof supabase === 'undefined') {
+    db.announcements.unshift(newPost);
+    saveDatabase();
+    await renderAdminAnnouncements(document.getElementById('admin-workspace'));
+    return;
+  }
+
+  const { error } = await supabase.from('announcements').insert([newPost]);
+  if (error) {
+    alert(`Error publishing announcement: ${error.message}`);
+    return;
+  }
+  await renderAdminAnnouncements(document.getElementById('admin-workspace'));
+}
+
+function renderAdminOverviewLocal() {
   const totalStudents = db.students.length;
   const totalSchedules = db.schedules.length;
   let totalAssessed = 0;
@@ -956,7 +1604,7 @@ function renderAdminOverview() {
 }
 
 // --- Admin CRUD: Students & Sections ---
-function renderAdminStudents() {
+function renderAdminStudentsLocal() {
   return `
     <div class="panel">
       <div class="panel-header">
@@ -1598,7 +2246,7 @@ function dropEnrollment(enrollmentId) {
 }
 
 // --- Admin CRUD: Automated Tuition Calculator & Manual Payment Logging ---
-function renderAdminTuition() {
+function renderAdminTuitionLocal() {
   return `
     <div class="panel">
       <div class="panel-header">
@@ -2497,11 +3145,32 @@ function saveAnnouncementForm(e) {
   render();
 }
 
-function deleteAnnouncement(id) {
-  db.announcements = db.announcements.filter(a => a.announcement_id !== id);
-  saveDatabase();
-  showToast('Announcement deleted.', 'success');
-  render();
+async function deleteAnnouncement(announcementId) {
+  if (!confirm('Delete this announcement?')) return;
+
+  if (typeof supabase === 'undefined') {
+    db.announcements = db.announcements.filter(a => a.announcement_id !== announcementId);
+    saveDatabase();
+    showToast('Announcement deleted.', 'success');
+    const workspace = document.getElementById('admin-workspace');
+    if (workspace) {
+      await renderAdminAnnouncements(workspace);
+    } else {
+      render();
+    }
+    return;
+  }
+
+  const { error } = await supabase
+    .from('announcements')
+    .delete()
+    .eq('announcement_id', announcementId);
+
+  if (error) {
+    alert(`Error deleting announcement: ${error.message}`);
+    return;
+  }
+  await renderAdminAnnouncements(document.getElementById('admin-workspace'));
 }
 
 // ==========================================================================
@@ -2696,9 +3365,21 @@ function escapeHtml(str) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // Boot application
-render();
+const savedSessionUser = localStorage.getItem('gnci_session_user');
+if (savedSessionUser) {
+  try {
+    const sessionUser = JSON.parse(savedSessionUser);
+    renderPortalByRole(sessionUser);
+  } catch (error) {
+    localStorage.removeItem('gnci_session_user');
+    render();
+  }
+} else {
+  render();
+}
 
