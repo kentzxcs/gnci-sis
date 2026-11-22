@@ -5,7 +5,7 @@
 
 const DB_KEY = 'gnc_sis_relational_db_v1';
 
-const SUPABASE_URL = 'https://hlxqsrmsdretbmpnnaf.supabase.co';
+const SUPABASE_URL = 'https://hlxqsrmsdrretbmpnnaf.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_gl5ssq7EZDp97KMDiPNjkg_BdnRQvES';
 
 const supabaseClient = window.supabase
