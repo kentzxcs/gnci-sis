@@ -480,46 +480,32 @@ async function handleLogin(event) {
   const loginInput = document.getElementById('login-username').value.trim().toLowerCase();
   const passwordInput = document.getElementById('login-password').value;
 
-  // Supabase-backed authentication when Supabase is initialized.
-  if (typeof supabase !== 'undefined') {
-    const { data: users, error } = await supabase
-      .from('users')
-      .select('user_id, username, role, full_name, department_or_program, status')
-      .eq('username', loginInput)
-      .eq('password', passwordInput)
-      .eq('status', 'Active')
-      .limit(1);
-
-    if (error) {
-      console.error('Login query error:', error.message);
-      alert('Unable to verify credentials right now. Please try again.');
-      return;
-    }
-
-    if (!users || users.length === 0) {
-      alert('Invalid credentials or inactive account.');
-      return;
-    }
-
-    currentUser = users[0];
-    localStorage.setItem('gnci_session_user', JSON.stringify(currentUser));
-    renderPortalByRole(currentUser);
+  if (typeof supabase === 'undefined') {
+    alert('Supabase is not initialized. The application cannot verify credentials.');
     return;
   }
 
-  // Preserve local demo authentication until Supabase is configured.
-  const user = db.users.find(
-    u => u.username.toLowerCase() === loginInput &&
-      u.password === passwordInput &&
-      u.status === 'Active'
-  );
+  const { data: users, error } = await supabase
+    .from('users')
+    .select('user_id, username, role')
+    .eq('username', loginInput)
+    .eq('password', passwordInput)
+    .limit(1);
 
-  if (!user) {
-    alert('Invalid credentials or inactive account.');
+  if (error) {
+    console.error('Login query error:', error.message);
+    alert('Unable to verify credentials right now. Please try again.');
     return;
   }
 
-  renderPortalByRole(user);
+  if (!users || users.length === 0) {
+    alert('Invalid credentials.');
+    return;
+  }
+
+  currentUser = users[0];
+  localStorage.setItem('gnci_session_user', JSON.stringify(currentUser));
+  renderPortalByRole(currentUser);
 }
 
 function handleSignup(e) {
@@ -647,19 +633,8 @@ function renderPortalByRole(user) {
 
   currentUser = user;
   activeTab = 'overview';
-  const roleMap = { admin: 'Admin', faculty: 'Faculty', student: 'Student' };
-  const normalizedRole = roleMap[String(currentUser.role).trim().toLowerCase()];
-  if (!normalizedRole) {
-    currentUser = null;
-    localStorage.removeItem('gnci_session_user');
-    alert('This account has an unsupported portal role.');
-    render();
-    return;
-  }
-
-  currentUser.role = normalizedRole;
   localStorage.setItem('gnci_session_user', JSON.stringify(currentUser));
-  showToast(`Authenticated as ${currentUser.full_name} (${currentUser.role})`, 'success');
+  showToast(`Authenticated as ${currentUser.username} (${currentUser.role})`, 'success');
   render();
 }
 
@@ -699,7 +674,7 @@ function renderAdminPortal(adminUser) {
       <aside class="sidebar admin-sidebar">
         <img src="images.jpg" alt="GNC Logo" class="sidebar-logo" />
         <div class="admin-badge">ADMIN PORTAL</div>
-        <p class="admin-name">${escapeHtml(adminUser.full_name)}</p>
+        <p class="admin-name">${escapeHtml(adminUser.username)}</p>
         <p class="admin-dept text-muted">${escapeHtml(adminUser.department_or_program || 'Administration')}</p>
 
         <nav class="nav-menu">
@@ -796,7 +771,12 @@ async function showAdminSection(section) {
 }
 
 function handleLogout() {
-  logout();
+  currentUser = null;
+  activeTab = 'overview';
+  localStorage.removeItem('gnci_session_user');
+  closeModal();
+  const app = document.getElementById('app');
+  app.innerHTML = renderLoginView();
 }
 
 function render() {
@@ -1193,28 +1173,27 @@ async function deleteStudentRecord(studentId) {
 
 async function renderAdminUsers(container) {
   if (typeof supabase === 'undefined') {
-    const accounts = db.users.filter(user =>
-      user.role === 'Admin' || user.role === 'Faculty'
-    );
+    const accounts = db.users;
     container.innerHTML = `
-      <h2>Admin & Faculty Accounts</h2>
+      <h2>System Accounts</h2>
       <form id="add-account-form" class="admin-form" onsubmit="handleCreateStaffAccount(event)">
         <input type="text" id="acc-username" placeholder="Username or @gnc.edu.ph email" required />
-        <input type="password" id="acc-password" placeholder="Temporary Password" required />
-        <select id="acc-role" required><option value="Admin">Admin</option><option value="Faculty">Faculty</option></select>
-        <input type="text" id="acc-fullname" placeholder="Full Name" required />
-        <input type="text" id="acc-dept" placeholder="Department or Program" required />
-        <button type="submit" class="btn btn-primary">Create Account</button>
+        <input type="password" id="acc-password" placeholder="Password" required />
+        <select id="acc-role" required>
+          <option value="Admin">Admin</option>
+          <option value="Faculty">Faculty</option>
+          <option value="Student">Student</option>
+        </select>
+        <button type="submit" class="btn btn-primary">Add Account</button>
       </form>
       <table class="data-table">
-        <thead><tr><th>User ID</th><th>Username / Email</th><th>Role</th><th>Full Name</th><th>Department / Program</th><th>Status</th><th>Action</th></tr></thead>
+        <thead><tr><th>User ID</th><th>Username / Email</th><th>Role</th><th>Action</th></tr></thead>
         <tbody>${accounts.map(acc => `
           <tr>
             <td>${escapeHtml(acc.user_id)}</td><td>${escapeHtml(acc.username)}</td><td>${escapeHtml(acc.role)}</td>
-            <td>${escapeHtml(acc.full_name)}</td><td>${escapeHtml(acc.department_or_program || '—')}</td><td>${escapeHtml(acc.status)}</td>
-            <td><button type="button" class="btn btn-sm" onclick="toggleAccountStatus('${escapeHtml(acc.user_id)}', '${escapeHtml(acc.status)}')">${acc.status === 'Active' ? 'Deactivate' : 'Activate'}</button></td>
+            <td><button type="button" class="btn btn-sm btn-danger" onclick="deleteUserAccount('${escapeHtml(acc.user_id)}')">Delete</button></td>
           </tr>
-        `).join('') || '<tr><td colspan="7">No admin or faculty accounts found.</td></tr>'}</tbody>
+        `).join('') || '<tr><td colspan="4">No accounts found.</td></tr>'}</tbody>
       </table>
     `;
     return;
@@ -1222,42 +1201,37 @@ async function renderAdminUsers(container) {
 
   const { data: accounts, error } = await supabase
     .from('users')
-    .select('user_id, username, role, full_name, department_or_program, status')
-    .in('role', ['Admin', 'Faculty'])
+    .select('user_id, username, role')
     .order('user_id', { ascending: true });
 
   if (error) {
-    container.innerHTML = '<p class="error-text">Failed to load admin and faculty accounts.</p>';
+    container.innerHTML = '<p class="error-text">Failed to load accounts.</p>';
     return;
   }
 
   container.innerHTML = `
-    <h2>Admin & Faculty Accounts</h2>
+    <h2>System Accounts</h2>
     <form id="add-account-form" class="admin-form" onsubmit="handleCreateStaffAccount(event)">
       <input type="text" id="acc-username" placeholder="Username or @gnc.edu.ph email" required />
-      <input type="password" id="acc-password" placeholder="Temporary Password" required />
+      <input type="password" id="acc-password" placeholder="Password" required />
       <select id="acc-role" required>
         <option value="Admin">Admin</option>
         <option value="Faculty">Faculty</option>
+        <option value="Student">Student</option>
       </select>
-      <input type="text" id="acc-fullname" placeholder="Full Name" required />
-      <input type="text" id="acc-dept" placeholder="Department or Program" required />
-      <button type="submit" class="btn btn-primary">Create Account</button>
+      <button type="submit" class="btn btn-primary">Add Account</button>
     </form>
     <table class="data-table">
-      <thead><tr><th>User ID</th><th>Username / Email</th><th>Role</th><th>Full Name</th><th>Department / Program</th><th>Status</th><th>Action</th></tr></thead>
+      <thead><tr><th>User ID</th><th>Username / Email</th><th>Role</th><th>Action</th></tr></thead>
       <tbody>
         ${(accounts || []).map(acc => `
           <tr>
             <td>${escapeHtml(acc.user_id)}</td>
             <td>${escapeHtml(acc.username)}</td>
             <td>${escapeHtml(acc.role)}</td>
-            <td>${escapeHtml(acc.full_name)}</td>
-            <td>${escapeHtml(acc.department_or_program || '—')}</td>
-            <td>${escapeHtml(acc.status)}</td>
-            <td><button type="button" class="btn btn-sm" onclick="toggleAccountStatus('${escapeHtml(acc.user_id)}', '${escapeHtml(acc.status)}')">${acc.status === 'Active' ? 'Deactivate' : 'Activate'}</button></td>
+            <td><button type="button" class="btn btn-sm btn-danger" onclick="deleteUserAccount('${escapeHtml(acc.user_id)}')">Delete</button></td>
           </tr>
-        `).join('') || '<tr><td colspan="7">No admin or faculty accounts found.</td></tr>'}
+        `).join('') || '<tr><td colspan="4">No accounts found.</td></tr>'}
       </tbody>
     </table>
   `;
@@ -1266,15 +1240,12 @@ async function renderAdminUsers(container) {
 async function handleCreateStaffAccount(event) {
   event.preventDefault();
   const selectedRole = document.getElementById('acc-role').value;
-  const prefix = selectedRole === 'Admin' ? 'ADM' : 'FAC';
+  const prefix = selectedRole === 'Admin' ? 'ADM' : selectedRole === 'Faculty' ? 'FAC' : 'STU';
   const newAccount = {
     user_id: `${prefix}-${Date.now().toString().slice(-6)}`,
     username: document.getElementById('acc-username').value.trim().toLowerCase(),
     password: document.getElementById('acc-password').value,
-    role: selectedRole,
-    full_name: document.getElementById('acc-fullname').value.trim(),
-    department_or_program: document.getElementById('acc-dept').value.trim(),
-    status: 'Active'
+    role: selectedRole
   };
 
   if (typeof supabase === 'undefined') {
@@ -1308,6 +1279,29 @@ async function handleCreateStaffAccount(event) {
     alert(`Error creating account: ${error.message}`);
     return;
   }
+  await renderAdminUsers(document.getElementById('admin-workspace'));
+}
+
+async function deleteUserAccount(userId) {
+  if (!confirm(`Delete account ${userId}?`)) return;
+
+  if (typeof supabase === 'undefined') {
+    db.users = db.users.filter(user => user.user_id !== userId);
+    saveDatabase();
+    await renderAdminUsers(document.getElementById('admin-workspace'));
+    return;
+  }
+
+  const { error } = await supabase
+    .from('users')
+    .delete()
+    .eq('user_id', userId);
+
+  if (error) {
+    alert(`Error deleting account: ${error.message}`);
+    return;
+  }
+
   await renderAdminUsers(document.getElementById('admin-workspace'));
 }
 
