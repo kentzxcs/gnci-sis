@@ -5,6 +5,18 @@
 
 const DB_KEY = 'gnc_sis_relational_db_v1';
 
+const SUPABASE_URL = 'https://hlxqsrmsdretbmpnnaf.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_gl5ssq7EZDp97KMDiPNjkg_BdnRQvES';
+
+const supabaseClient = window.supabase
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
+
+// Keep the existing Supabase calls working; disable live mode until the real anon key is configured.
+const supabase = SUPABASE_ANON_KEY !== 'YOUR_SUPABASE_ANON_PUBLIC_KEY'
+  ? supabaseClient
+  : undefined;
+
 // Fee Configuration Constants (Automated Tuition Calculator Engine)
 const FEE_RATES = {
   TUITION_PER_UNIT: 650.00,
@@ -477,15 +489,15 @@ function switchAuthMode(mode) {
 async function handleLogin(event) {
   event.preventDefault();
 
-  const loginInput = document.getElementById('login-username').value.trim().toLowerCase();
-  const passwordInput = document.getElementById('login-password').value;
-
-  if (typeof supabase === 'undefined') {
+  if (!supabaseClient) {
     alert('Supabase is not initialized. The application cannot verify credentials.');
     return;
   }
 
-  const { data: users, error } = await supabase
+  const loginInput = document.getElementById('login-username').value.trim().toLowerCase();
+  const passwordInput = document.getElementById('login-password').value;
+
+  const { data: users, error } = await supabaseClient
     .from('users')
     .select('user_id, username, role')
     .eq('username', loginInput)
@@ -494,7 +506,7 @@ async function handleLogin(event) {
 
   if (error) {
     console.error('Login query error:', error.message);
-    alert('Unable to verify credentials right now. Please try again.');
+    alert(`Login error: ${error.message}`);
     return;
   }
 
