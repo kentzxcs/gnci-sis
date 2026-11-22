@@ -567,8 +567,9 @@ function logout() {
   currentUser = null;
   activeTab = 'overview';
   localStorage.removeItem('gnci_session_user');
+  localStorage.removeItem('gnc_sis_relational_db_v1');
   closeModal();
-  render();
+  location.reload();
 }
 
 function switchTab(tabId) {
@@ -759,9 +760,9 @@ function handleLogout() {
   currentUser = null;
   activeTab = 'overview';
   localStorage.removeItem('gnci_session_user');
+  localStorage.removeItem('gnc_sis_relational_db_v1');
   closeModal();
-  const app = document.getElementById('app');
-  app.innerHTML = renderLoginView();
+  location.reload();
 }
 
 function render() {
